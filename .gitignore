@@ -8,3 +8,4 @@ results/raw/
 .DS_Store
 *.egg-info/
 results/*
+data/*
