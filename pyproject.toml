@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffusion-policy-manipulation"
+version = "0.1.0"
+description = "Diffusion Policy for Manipulation: Execution Strategy Study"
+authors = [{name="Abhinav Jain"}]
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
