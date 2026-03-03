@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install matplotlib
+
+      - name: Patch pymunk 7.x compatibility (gym-pusht)
+        run: |
+          source .venv/bin/activate
+          python - <<'EOF'
+          import pathlib, site, sys
+
+          # Locate gym_pusht/envs/pusht.py inside the active venv.
+          for sp in site.getsitepackages():
+              candidate = pathlib.Path(sp) / "gym_pusht" / "envs" / "pusht.py"
+              if candidate.exists():
+                  src = candidate.read_text()
+                  old = (
+                      "self.collision_handeler = self.space.add_collision_handler(0, 0)\n"
+                      "        self.collision_handeler.post_solve = self._handle_collision"
+                  )
+                  new = (
+                      "self.space.on_collision(0, 0, post_solve=self._handle_collision)\n"
+                      "        self.collision_handeler = None"
+                  )
+                  if old in src:
+                      candidate.write_text(src.replace(old, new))
+                      print(f"Patched {candidate}")
+                  else:
+                      print(f"Patch not needed or already applied: {candidate}")
+                  sys.exit(0)
+          print("gym_pusht not found in site-packages — skipping patch")
+          EOF
+
+      - name: Smoke test — determinism
+        run: |
+          source .venv/bin/activate
+          python scripts/smoke_determinism.py \
+            --env_id gym_pusht/PushT-v0 \
+            --seed 0 \
+            --steps 10
+
+      - name: Smoke test — diffusion sampler
+        run: |
+          source .venv/bin/activate
+          python scripts/smoke_diffusion_sampler.py \
+            --seed 0 \
+            --B 2 \
+            --obs_dim 10 \
+            --act_dim 2 \
+            --horizon 4 \
+            --T 20 \
+            --steps 5
+
+      - name: Smoke test — execution modes
+        run: |
+          source .venv/bin/activate
+          python scripts/smoke_execution_modes.py \
+            --env_id gym_pusht/PushT-v0 \
+            --seed 0
