@@ -123,6 +123,7 @@ def evaluate_bc(
     return_mean = float(np.mean(episode_returns))
     return_std = float(np.std(episode_returns))
     success_rate = float(np.mean(success_flags))
+    episode_len_mean = float(np.mean(episode_lengths))
 
     # Deterministic hash of the reset seed list — lets callers verify that
     # two eval runs used the same episode seeds without comparing every array.
@@ -139,6 +140,7 @@ def evaluate_bc(
         "return_mean": return_mean,
         "return_std": return_std,
         "success_rate": success_rate,
+        "episode_len_mean": episode_len_mean,
         "eval_seed_list_hash": seeds_hash,
     }
 
