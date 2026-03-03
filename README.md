@@ -1,7 +1,7 @@
 # diffusion-policy-manipulation: Execution Strategy Study for Diffusion-Based Action-Sequence Policies
 
-[![CI](https://github.com/jaintle/diffusion-policy-manipulation/actions/workflows/ci.yml/badge.svg)](https://github.com/imabhi80/diffusion-policy-manipulation/actions/workflows/ci.yml)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.PLACEHOLDER.svg)](https://doi.org/10.5281/zenodo.PLACEHOLDER)
+[![CI](https://github.com/jaintle/diffusion-policy-manipulation/actions/workflows/ci.yml/badge.svg)](https://github.com/jaintle/diffusion-policy-manipulation/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18854204.svg)](https://doi.org/10.5281/zenodo.18854204)
 
 ---
 
@@ -322,7 +322,7 @@ tests/
              Diffusion-Based Action-Sequence Policies},
   year    = {2026},
   url     = {https://github.com/imabhi80/diffusion-policy-manipulation},
-  doi     = {10.5281/zenodo.PLACEHOLDER},
+  doi     = {10.5281/zenodo.18854204},
   version = {1.0.0},
 }
 ```
