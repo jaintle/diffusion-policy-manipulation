@@ -24,7 +24,17 @@ jobs:
           python -m venv .venv
           source .venv/bin/activate
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # requirements.txt is a macOS/py3.11 lock file; install the
+          # runtime packages the smoke tests actually need, unpinned.
+          pip install \
+            "torch>=2.0" \
+            "numpy>=1.24" \
+            "gymnasium>=1.0" \
+            "gym-pusht>=0.1" \
+            "pymunk>=7.0" \
+            "pygame>=2.0" \
+            "shapely>=2.0" \
+            "matplotlib>=3.7"
           pip install -e .
 
       - name: Patch pymunk 7.x compatibility (gym-pusht)
