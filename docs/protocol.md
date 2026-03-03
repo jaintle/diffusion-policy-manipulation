@@ -4,6 +4,9 @@ This document describes the exact protocol used for dataset generation, model tr
 evaluation, and multi-seed aggregation. Any deviation from these parameters constitutes
 a different experiment and should be recorded as such in `report/experiment_log.md`.
 
+The configuration below matches the run reported in `results/rq_exec_mode/` (commit
+04defe5, seeds 0–2, logged in `report/experiment_log.md` as `rq-exec-mode-3seed`).
+
 ---
 
 ## 1. Dataset Generation
@@ -24,13 +27,24 @@ a broad but sparse region of the state-action space.
 
 **Episode seeding:** Episode `i` resets the environment with seed `dataset_seed + i`.
 
-**Parameters (default for smoke / recommended for full run):**
+**Parameters used for `results/rq_exec_mode/`:**
 
-| Parameter         | Smoke | Full run |
-|-------------------|-------|----------|
-| `--episodes`      | 3     | 200      |
-| `--max_steps`     | 50    | 300      |
-| `--seed`          | 0     | 0        |
+| Parameter         | Value used |
+|-------------------|------------|
+| `--episodes`      | 20         |
+| `--max_steps`     | 200        |
+| `--seed`          | per-seed (0, 1, 2) |
+
+**Exact CLI command (seed 0; repeat for seeds 1, 2):**
+
+```bash
+python scripts/record_dataset.py \
+    --env_id    gym_pusht/PushT-v0 \
+    --seed      0 \
+    --episodes  20 \
+    --max_steps 200 \
+    --out       data/_repro/pusht_repro_seed0.npz
+```
 
 **Output format:** NumPy `.npz` archive with the following arrays:
 
@@ -51,8 +65,8 @@ contiguously in chronological order.
 **Normalization:** A `RunningNormalizer` is fit on the recorded dataset and saved
 alongside the `.npz` file as a JSON sidecar. The normalizer computes per-dimension
 mean and standard deviation over all transitions. Standard deviation is clipped to a
-minimum of `1e-6` to avoid division by zero in degenerate dimensions. Both BC and
-diffusion training consume normalized observations and actions.
+minimum of `1e-6`. Both BC and diffusion training consume normalized observations and
+actions.
 
 ---
 
@@ -65,7 +79,7 @@ diffusion training consume normalized observations and actions.
 - MLP backbone: `[hidden_dim] * num_layers` with ReLU activations.
 - Output: mean vector `[act_dim]` from a linear head; a learned scalar log-standard
   deviation parameter (single `nn.Parameter`, shared across all action dimensions).
-- At deterministic evaluation time, only the mean is used.
+- At evaluation time, only the mean is used (deterministic action).
 
 **Loss:** Gaussian negative log-likelihood.
 `NLL = 0.5 * log(2π) + log_std + 0.5 * ((action - mean) / exp(log_std))^2`
@@ -73,18 +87,26 @@ Log standard deviation is clamped to `[-20, 2]` before exponentiation.
 
 **Optimizer:** Adam, default betas.
 
-**Batch construction:** At step `t`, a fresh `np.random.RandomState(seed + t)` draws a
-batch of indices with replacement from the full transition pool. No persistent RNG state
-is shared between steps.
+**Parameters used for `results/rq_exec_mode/`:**
 
-**Default architecture:**
+| Hyperparameter | Value  |
+|----------------|--------|
+| `hidden_dim`   | 256    |
+| `num_layers`   | 3      |
+| `lr`           | 3e-4   |
+| `batch_size`   | 256    |
+| `--steps`      | 3 000  |
 
-| Hyperparameter | Default |
-|----------------|---------|
-| `hidden_dim`   | 256     |
-| `num_layers`   | 3       |
-| `lr`           | 3e-4    |
-| `batch_size`   | 256     |
+**Exact CLI command (seed 0):**
+
+```bash
+python scripts/train_bc.py \
+    --dataset_path data/_repro/pusht_repro_seed0.npz \
+    --run_dir      runs/_repro/bc_seed0 \
+    --seed         0 \
+    --steps        3000 \
+    --device       cpu
+```
 
 **Outputs written to `--run_dir`:**
 
@@ -100,42 +122,44 @@ is shared between steps.
 
 **Model:** `MLPDenoiser`
 
-- Input: concatenation of `[obs, x_t_flat, relu(t_proj(t_embed))]` where `x_t_flat`
-  is the noisy action sequence flattened to `[horizon * act_dim]`.
-- Timestep embedding: sinusoidal embedding of dimension `t_embed_dim`, projected to
-  `hidden_dim` by a learned linear layer.
+- Input: concatenation of `[obs, x_t_flat, relu(t_proj(t_embed))]`.
+- Timestep embedding: sinusoidal embedding, projected to `hidden_dim` by a learned
+  linear layer.
 - Output: predicted noise `eps_hat` reshaped to `[B, horizon, act_dim]`.
 
 **Noise schedule:** Linear beta schedule.
-`beta_t = linspace(beta_start, beta_end, T)`
-`alpha_bar_t = cumprod(1 - beta_t)`
+`beta_t = linspace(beta_start, beta_end, T)`; `alpha_bar_t = cumprod(1 - beta_t)`.
 
-**Prediction target:** Noise `eps` (epsilon parameterization).
+**Prediction target:** Noise ε.
 
-**Training objective:** Mean squared error between predicted and actual noise.
-`L = MSE(eps_hat, eps)`
-where `x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * eps`.
+**Training objective:** `L = MSE(eps_hat, eps)` where
+`x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * eps`.
 
-**Action sequences:** Constructed from the dataset by sliding a window of length `H`
-over each episode. Sequences that cross episode boundaries are excluded.
+**Parameters used for `results/rq_exec_mode/`:**
 
-**Noise and timestep sampling per step:** A `torch.Generator(seed + step + 777)` is
-created fresh at each step and used to draw both the diffusion timestep `t` (uniform
-over `[0, T-1]`) and the noise `eps ~ N(0, I)`.
+| Hyperparameter    | Value  |
+|-------------------|--------|
+| `hidden_dim`      | 256    |
+| `num_layers`      | 4      |
+| `t_embed_dim`     | 64     |
+| `horizon H`       | 8      |
+| `T`               | 50     |
+| `beta_start`      | 1e-4   |
+| `beta_end`        | 0.02   |
+| `lr`              | 3e-4   |
+| `batch_size`      | 256    |
+| `--steps`         | 5 000  |
 
-**Default architecture and schedule:**
+**Exact CLI command (seed 0):**
 
-| Hyperparameter  | Default |
-|-----------------|---------|
-| `hidden_dim`    | 256     |
-| `num_layers`    | 4       |
-| `t_embed_dim`   | 64      |
-| `horizon H`     | 8       |
-| `T`             | 100     |
-| `beta_start`    | 1e-4    |
-| `beta_end`      | 0.02    |
-| `lr`            | 3e-4    |
-| `batch_size`    | 256     |
+```bash
+python scripts/train_diffusion.py \
+    --dataset_path data/_repro/pusht_repro_seed0.npz \
+    --run_dir      runs/_repro/diffusion_seed0 \
+    --seed         0 \
+    --steps        5000 \
+    --device       cpu
+```
 
 **Outputs written to `--run_dir`:**
 
@@ -151,104 +175,148 @@ over `[0, T-1]`) and the noise `eps ~ N(0, I)`.
 
 **Environment:** Same as dataset collection (`gym_pusht/PushT-v0`).
 
-**Episode seeding:** Episode `i` uses reset seed `eval_seed + i`. The master eval seed
-is set independently from the training seed.
+**Episode seeding:** Episode `i` uses reset seed `eval_seed + i`.
 
 **Steps per episode:** Capped at `max_steps`. Episodes end earlier on termination or
 truncation.
+
+**Parameters used for `results/rq_exec_mode/`:**
+
+| Parameter         | Value |
+|-------------------|-------|
+| `--episodes`      | 20    |
+| `--max_steps`     | 200   |
 
 **Success metric:** The environment's `terminated` flag is used as the primary success
 signal. If the final `info` dict contains a `"success"` or `"is_success"` key, that
 value takes precedence. No reward threshold is used as a success proxy.
 
-**BC evaluation:** At each step, the policy computes the mean action (no sampling). The
-log standard deviation parameter is not used during evaluation.
+In the `rq_exec_mode` run, `terminated` was never set within 200 steps for any method
+or seed. `success_rate = 0.0` across all conditions. `return_mean` is the operative
+metric for this comparison.
+
+**BC evaluation:** At each step, the policy computes the mean action (no sampling).
 
 **Diffusion evaluation — Open-loop chunk execution:**
 
 1. On `policy.reset(episode_seed)`, the action cache is cleared.
-2. On the first call to `policy.act(obs)` after reset or cache exhaustion:
-   - DDIM is called with `seed = episode_seed + chunk_index + sample_seed_base`.
-   - The full H-step sequence is stored in the cache.
+2. On cache exhaustion, DDIM is called with `seed = episode_seed + chunk_index + sample_seed_base`.
 3. Actions are returned from the cache in order (index 0 through H-1).
-4. When the cache is exhausted, step 2 is repeated with `chunk_index += 1`.
 
 **Diffusion evaluation — Receding-horizon re-planning:**
 
-1. On `policy.reset(episode_seed)`, the timestep counter is reset to 0.
-2. At every call to `policy.act(obs)`:
-   - DDIM is called with `seed = episode_seed + timestep_index + sample_seed_base`.
-   - Only action `seq[0, 0]` (first action of the predicted sequence) is returned.
-   - The remainder of the sequence is discarded.
-3. `timestep_index` is incremented after each call.
+1. On `policy.reset(episode_seed)`, the timestep counter is reset.
+2. At every call to `policy.act(obs)`, DDIM is called with
+   `seed = episode_seed + timestep_index + sample_seed_base`.
+3. Only `seq[0, 0]` (first action) is returned; the rest is discarded.
 
 **DDIM sampler configuration:**
 
-| Parameter    | Value             |
-|--------------|-------------------|
+| Parameter    | Value               |
+|--------------|---------------------|
 | `eta`        | 0.0 (deterministic) |
-| `steps K`    | 10                |
-| Timesteps    | `linspace(0, T-1, K)` reversed (large to small) |
+| `steps K`    | 10                  |
+| Timesteps    | `linspace(0, T-1, K)` reversed |
 
-**Evaluation output JSON:**
+**Exact CLI commands (seed 0):**
 
-Each output file contains:
-- `env_id`, `seed`, `episodes`
-- `episode_returns` — list of per-episode cumulative rewards.
-- `episode_lengths` — list of per-episode step counts.
-- `success_flags` — list of per-episode success indicators (0 or 1).
-- `return_mean`, `return_std`, `success_rate`, `episode_len_mean` — scalar summaries.
-- `eval_seed_list_hash` — SHA-256 (first 16 hex chars) of the comma-joined reset seed
-  list, for reproducibility verification.
+```bash
+# BC evaluation
+python scripts/eval_bc.py \
+    --env_id          gym_pusht/PushT-v0 \
+    --checkpoint_path runs/_repro/bc_seed0/checkpoint.pt \
+    --out_path        results/rq_exec_mode/seed0/bc_eval.json \
+    --seed            0 \
+    --episodes        20 \
+    --max_steps       200 \
+    --device          cpu
+
+# Diffusion evaluation (both modes)
+python scripts/eval_diffusion.py \
+    --env_id          gym_pusht/PushT-v0 \
+    --checkpoint_path runs/_repro/diffusion_seed0/checkpoint.pt \
+    --out_dir         runs/_repro/diffusion_seed0/eval_repro \
+    --seed            0 \
+    --episodes        20 \
+    --max_steps       200 \
+    --device          cpu
+```
+
+**Evaluation output JSON keys:**
+
+`env_id`, `seed`, `episodes`, `episode_returns`, `episode_lengths`, `success_flags`,
+`return_mean`, `return_std`, `success_rate`, `episode_len_mean`, `eval_seed_list_hash`.
 
 ---
 
-## 5. Multi-seed Aggregation
+## 5. Multi-seed Orchestration
 
-**Scripts:** `scripts/reproduce_multiseed.py`, `scripts/validate_results.py`,
-`scripts/aggregate_results.py`
+The full pipeline for all seeds is run via `scripts/reproduce_multiseed.py`, which
+handles dataset recording, BC training, BC evaluation, diffusion training, and
+diffusion evaluation (both modes) per seed, skipping completed stages on re-run.
 
-**Required file layout before aggregation:**
+**Exact CLI command used for `results/rq_exec_mode/`:**
+
+```bash
+python scripts/reproduce_multiseed.py \
+    --seeds            0 1 2 \
+    --env_id           gym_pusht/PushT-v0 \
+    --episodes_record  20 \
+    --max_steps_record 200 \
+    --steps_bc         3000 \
+    --steps_diff       5000 \
+    --episodes_eval    20 \
+    --max_steps_eval   200 \
+    --results_root     results/rq_exec_mode \
+    --device           cpu
+```
+
+---
+
+## 6. Multi-seed Aggregation
+
+**Required file layout:**
 
 ```
-results/{results_root}/
-    seed0/
-        bc_eval.json
-        diff_open_loop.json
-        diff_receding.json
-    seed1/
-        ...
-    seed2/
-        ...
+results/rq_exec_mode/
+    seed0/  bc_eval.json  diff_open_loop.json  diff_receding.json
+    seed1/  ...
+    seed2/  ...
 ```
 
-**Validation:** `validate_results.py` checks that all three JSON files are present for
-each seed, are parseable, and contain the four required scalar keys
-(`success_rate`, `return_mean`, `return_std`, `episode_len_mean`). Missing files or
-missing keys cause a hard exit with a descriptive error. Aggregation must never proceed
-on incomplete data.
+**Validation:**
 
-**Aggregation:** `aggregate_results.py` reads the three method files for each seed and
-computes per-metric mean and population standard deviation (ddof=0) across seeds.
+```bash
+python scripts/validate_results.py \
+    --seeds 0 1 2 \
+    --results_root results/rq_exec_mode
+```
 
-**Output files:**
+Checks that all three JSON files exist per seed, are parseable, and contain
+`success_rate`, `return_mean`, `return_std`, and `episode_len_mean`. Hard exits on any
+missing file or key. Aggregation must not proceed on incomplete data.
 
-`per_seed.csv` — one row per (method, seed) combination; all numeric fields.
+**Aggregation:**
 
-`summary.csv` — one row per (method, metric) combination; columns: `method`, `metric`,
-`mean`, `std`, `n_seeds`.
+```bash
+python scripts/aggregate_results.py \
+    --seeds 0 1 2 \
+    --results_root results/rq_exec_mode
+```
+
+Writes:
+- `results/rq_exec_mode/per_seed.csv` — one row per (method, seed); all numeric fields.
+- `results/rq_exec_mode/summary.csv` — one row per (method, metric); columns `method`,
+  `metric`, `mean`, `std`, `n_seeds`. Cross-seed statistics use population std (ddof=0).
 
 Methods reported: `bc`, `diff_open_loop`, `diff_receding`.
 
-Metrics reported: `success_rate`, `return_mean`, `return_std`, `episode_len_mean`,
-`mean_policy_time` (if present).
-
-**Missing seeds:** If any seed directory or required file is absent, `aggregate_results.py`
-exits with code 1. Partial aggregation is not performed.
+If any seed file is absent, `aggregate_results.py` exits with code 1. Partial
+aggregation is not performed.
 
 ---
 
-## 6. Experiment Logging
+## 7. Experiment Logging
 
 After each meaningful run, append an entry to `report/experiment_log.md` using the
 template provided in that file. Each entry must record the commit hash, seed list,

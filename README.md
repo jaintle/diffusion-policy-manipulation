@@ -1,273 +1,328 @@
-# Diffusion Policy Manipulation
+# diffusion-policy-manipulation: Execution Strategy Study for Diffusion-Based Action-Sequence Policies
 
-A controlled study of diffusion-based action-sequence policies for robotic manipulation.
-The repository trains an MLP denoiser on Push-T demonstrations and evaluates how
-**execution strategy** — open-loop chunk execution vs. receding-horizon re-planning —
-affects task performance under identical training conditions.
-All experiments are deterministic, multi-seed, and locally reproducible.
+[![CI](https://github.com/imabhi80/diffusion-policy-manipulation/actions/workflows/ci.yml/badge.svg)](https://github.com/imabhi80/diffusion-policy-manipulation/actions/workflows/ci.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.PLACEHOLDER.svg)](https://doi.org/10.5281/zenodo.PLACEHOLDER)
 
 ---
 
-## Research Question
+## Overview
 
-Given a diffusion policy trained to predict action sequences, does execution strategy
-affect manipulation success rate and episode length in a controlled single-task setting?
+This repository provides a controlled evaluation study of diffusion-based action-sequence
+policies for robotic manipulation. A minimal MLP denoiser is trained on Push-T
+demonstrations and evaluated under two execution strategies that differ only at deployment
+time, with no modifications to training, architecture, or sampler configuration.
 
-Two strategies are compared under identical training:
+The central research question is: **given a trained diffusion policy that predicts
+H-step action sequences, does execution strategy — open-loop chunk execution versus
+receding-horizon re-planning — produce a measurable difference in task performance
+under identical training conditions?**
 
-- **Open-loop chunk execution** — sample a full H-step sequence; execute all H actions
-  before re-planning.
-- **Receding-horizon re-planning** — sample a full H-step sequence; execute only the
-  first action; re-plan at every timestep.
+Two strategies are compared. Open-loop chunk execution samples the full H-step sequence
+once and executes all H actions before re-querying the policy. Receding-horizon
+re-planning samples the full H-step sequence at every control step but executes only
+the first action, discarding the rest. A Gaussian MLP BC baseline (single-step,
+no sequence modeling) is included as an independent reference point.
 
-Training data, model architecture, diffusion schedule, and sampler configuration are
-held constant. Execution strategy is the sole independent variable.
-
-This is a controlled evaluation study. We do not claim state-of-the-art performance.
-We do not compare against prior methods. We isolate a single execution-time decision
-and measure its effect on a standard benchmark task.
+Evaluation follows a fully deterministic protocol: per-episode reset seeds are fixed
+and committed to a SHA-256 hash stored in every output file, diffusion sampling uses
+DDIM with eta = 0.0 (deterministic), and all experiments are replicated across three
+independently-seeded runs. This repository does not claim improved performance or
+propose a new algorithm. It provides a reproducible measurement harness for the
+execution-strategy question in a controlled, single-task setting.
 
 ---
 
-## Repository Structure
+## Empirical Snapshot
 
-```
-src/diffusion_policy_manipulation/   core library
-    data/        dataset loading and observation/action normalization
-    envs/        Push-T environment wrapper with deterministic seeding
-    models/      MLP BC policy, MLP denoiser, diffusion schedule, DDIM sampler
-    train/       BC and diffusion training loops
-    eval/        rollout evaluator, execution-strategy policy wrappers, latency
+Results below are from the three-seed experiment (`results/rq_exec_mode/`): seeds 0, 1, 2;
+20 episodes of random-policy demonstrations per seed; 20 evaluation episodes per method.
+See `results/rq_exec_mode/summary.csv` and `results/rq_exec_mode/per_seed.csv` for full CSV outputs.
 
-scripts/
-    record_dataset.py            collect Push-T demonstrations
-    train_bc.py                  train Gaussian MLP BC baseline
-    eval_bc.py                   evaluate BC checkpoint
-    train_diffusion.py           train MLP diffusion denoiser
-    eval_diffusion.py            evaluate diffusion checkpoint (both exec modes)
-    reproduce_multiseed.py       full multi-seed pipeline orchestrator
-    validate_results.py          verify per-seed JSON outputs exist and are complete
-    aggregate_results.py         compute mean +/- std; write summary.csv, per_seed.csv
-    smoke_determinism.py         Phase 1 smoke test
-    smoke_dataset.py             Phase 2 smoke test
-    smoke_bc.py                  Phase 3 smoke test
-    smoke_diffusion_sampler.py   Phase 4 smoke test
-    smoke_execution_modes.py     Phase 5 smoke test
-    smoke_diffusion_train_eval.py Phase 6 smoke test
-    smoke_multiseed.py           Phase 7 smoke test
+### Multi-seed summary (Push-T, 3 seeds)
 
-configs/                         per-experiment YAML/JSON configs (not yet populated)
-data/                            datasets (gitignored)
-runs/                            training checkpoints and logs (gitignored)
-results/                         per-seed JSON outputs and aggregated CSVs (gitignored)
-report/
-    experiment_log.md            incremental log of meaningful experimental runs
-docs/
-    protocol.md                  exact dataset, training, and evaluation protocol
-    research_question.md         academic framing of the research question
-    threat_model.md              explicit scope limitations and non-goals
-tests/                           unit tests
-```
+| Method             | return\_mean (mean ± std) | episode\_len\_mean | Seeds |
+|--------------------|-------------------------:|--------------------|------:|
+| Gaussian BC        |          3.98 ± 1.60      | 200.0 ± 0.0        | 3     |
+| Diffusion Open-loop |         7.70 ± 1.99      | 200.0 ± 0.0        | 3     |
+| Diffusion Receding |          7.72 ± 1.98      | 200.0 ± 0.0        | 3     |
+
+### Per-seed returns
+
+| Seed | BC return\_mean | Open-loop return\_mean | Receding return\_mean |
+|-----:|----------------:|-----------------------:|----------------------:|
+| 0    |            1.97 |                   5.65 |                  5.68 |
+| 1    |            4.09 |                   7.05 |                  7.07 |
+| 2    |            5.88 |                  10.39 |                  10.41 |
+
+> **Interpretation note.** Diffusion sequence modeling outperformed the Gaussian BC
+> baseline consistently across all three seeds, with a cross-seed mean return of
+> approximately 7.7 versus 4.0 for BC. The difference between open-loop chunk execution
+> and receding-horizon re-planning was negligible in this regime (Δ return\_mean ≈ 0.02),
+> indicating that execution strategy does not materially affect task return at this
+> training and dataset scale. `success_rate` is 0.0 for all methods and seeds; the
+> Push-T environment's termination signal does not trigger within 200 steps under the
+> evaluated policies, so `return_mean` is the primary metric for this comparison.
+> Evaluation uses deterministic (mean) action selection for BC and DDIM eta = 0.0 for diffusion.
+
+### Figures
+
+Bar plot — return\_mean ± std across seeds:
+
+![Return mean ± std by method](report/figures/summary_plot.png)
+
+Per-seed scatter with mean marker overlay:
+
+![Per-seed returns by method](report/figures/per_seed_plot.png)
+
+---
+
+## Research Objective
+
+This study addresses one precise evaluation question:
+
+**Does execution strategy affect task return and success rate when applied to a fixed
+diffusion policy trained under identical conditions?**
+
+The two strategies evaluated are:
+
+1. **Open-loop chunk execution.** The policy is queried once per H-step chunk. All H
+   actions are executed in sequence before re-querying. Re-planning frequency is 1/H of
+   the control frequency.
+
+2. **Receding-horizon re-planning.** The policy is queried at every control step.
+   Only the first action of the predicted H-step sequence is used; the remaining H-1
+   actions are discarded. Re-planning frequency equals the control frequency.
+
+Training data, model architecture, diffusion schedule, sampler configuration, and
+evaluation seeds are held constant. Execution strategy is the sole independent variable.
+
+---
+
+## Experimental Protocol
+
+### Environment
+
+| Property          | Value                              |
+|-------------------|------------------------------------|
+| Environment       | Push-T (`gym_pusht/PushT-v0`)      |
+| Observation mode  | State (5-dimensional)              |
+| Action space      | Continuous, 2-dimensional          |
+| Episode horizon   | 200 steps (max\_steps cap)         |
+| Dataset policy    | Uniform random actions             |
+
+### Model Configurations
+
+**Gaussian BC baseline:**
+
+| Hyperparameter | Value |
+|----------------|-------|
+| Architecture   | MLP, 3 layers × 256 hidden units |
+| Output         | Mean + learned scalar log\_std   |
+| Loss           | Gaussian NLL                     |
+| Optimizer      | Adam, lr = 3 × 10⁻⁴             |
+| Batch size     | 256                              |
+| Training steps | 3 000                            |
+
+**Diffusion policy (MLP denoiser):**
+
+| Hyperparameter     | Value                   |
+|--------------------|-------------------------|
+| Architecture       | MLP, 4 layers × 256 hidden units |
+| Timestep embedding | Sinusoidal, dim = 64    |
+| Noise schedule     | Linear beta, T = 50     |
+| beta\_start        | 1 × 10⁻⁴               |
+| beta\_end          | 0.02                    |
+| Prediction target  | Noise ε (epsilon)       |
+| Horizon H          | 8                       |
+| Sampler            | DDIM, K = 10 steps, eta = 0.0 |
+| Optimizer          | Adam, lr = 3 × 10⁻⁴    |
+| Batch size         | 256                     |
+| Training steps     | 5 000                   |
+
+### Deterministic Evaluation Protocol
+
+Per-episode seeds are fixed across all methods. Episode `i` resets the environment
+with seed `eval_seed + i`. The full list of reset seeds is hashed to a 16-character
+SHA-256 prefix (`eval_seed_list_hash`) stored in every output JSON.
+
+Diffusion sampling seeds are derived deterministically: `episode_seed + chunk_index`
+for open-loop, `episode_seed + timestep_index` for receding-horizon. No global RNG
+state is consumed between samples.
+
+### Multi-seed Aggregation
+
+Three seeds (0, 1, 2) are run independently via `scripts/reproduce_multiseed.py`.
+Each seed records its own dataset and trains from scratch. Per-seed JSON outputs are
+validated by `scripts/validate_results.py` before aggregation. `scripts/aggregate_results.py`
+computes cross-seed mean and population standard deviation (ddof = 0) and writes
+`per_seed.csv` and `summary.csv`.
 
 ---
 
 ## Determinism Guarantees
 
-Reproducing results on the same hardware produces byte-identical JSON outputs.
+| Target              | Operation                                                  |
+|---------------------|------------------------------------------------------------|
+| Python `random`     | `random.seed(seed)`                                        |
+| NumPy global        | `np.random.seed(seed)`                                     |
+| PyTorch CPU         | `torch.manual_seed(seed)`                                  |
+| PyTorch CUDA        | `torch.cuda.manual_seed_all(seed)`                         |
+| cuDNN               | `deterministic=True`, `benchmark=False`                    |
+| Gymnasium env       | `env.reset(seed=seed)`                                     |
+| Action/obs spaces   | `space.seed(seed)`                                         |
+| Training batches    | Fresh `np.random.RandomState(seed + step)` per step        |
+| Diffusion noise     | Fresh `torch.Generator(seed + step + 777)` per step        |
+| DDIM sampling       | Fresh `torch.Generator` per call, seeded from episode + index |
 
-**Global seed control.** Python `random`, NumPy, and PyTorch CPU and CUDA seeds are
-set from a single integer at the start of every script. `torch.backends.cudnn.deterministic`
-is enabled and `torch.use_deterministic_algorithms(True)` is applied where supported.
-
-**Dataset generation.** Episode resets and action sampling use separate, fixed
-`np.random.RandomState` objects seeded from the master seed. Recording the same seed
-twice produces an identical `.npz` file.
-
-**Training.** Each training step derives a fresh `RandomState(seed + step)` for batch
-sampling and a fresh `torch.Generator(seed + step + 777)` for diffusion noise and
-timestep draws. No persistent global RNG state is consumed between steps.
-
-**Diffusion sampling.** DDIM is used with `eta = 0.0` (deterministic). A
-`torch.Generator` is created fresh per sampling call, seeded from a deterministic
-function of the episode seed and step index. No state leaks between calls.
-
-**Evaluation.** Episode `i` resets with seed `master_seed + i`. Execution-strategy
-wrappers derive sampling seeds from `episode_seed + chunk_index` (open-loop) or
-`episode_seed + timestep_index` (receding-horizon). The set of reset seeds is hashed
-and recorded in every output JSON for verification.
-
-**Outputs.** JSON files contain all scalar metrics and per-episode arrays. Given
-identical inputs, two runs produce byte-identical JSON.
+Given identical arguments, two evaluation runs produce byte-identical JSON output.
 
 ---
 
 ## Installation
 
-Python >= 3.10 is required.
+Python >= 3.10 required.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+git clone https://github.com/imabhi80/diffusion-policy-manipulation.git
+cd diffusion-policy-manipulation
+python -m venv .venv && source .venv/bin/activate
 pip install -e .
 pip install -r requirements.txt
 ```
 
-The Push-T environment (`gym-pusht`) requires `pymunk >= 7.0`. On `pymunk 7.2`, a
-one-line patch to the gym-pusht source is needed to replace the removed
-`Space.add_collision_handler` API:
+The Push-T environment requires a one-line patch to `gym_pusht/envs/pusht.py` on
+pymunk 7.2 (replace the removed `Space.add_collision_handler` call):
 
 ```python
-# gym_pusht/envs/pusht.py  — replace:
+# Replace:
 self.collision_handeler = self.space.add_collision_handler(0, 0)
 self.collision_handeler.post_solve = self._handle_collision
-# with:
+# With:
 self.space.on_collision(0, 0, post_solve=self._handle_collision)
 self.collision_handeler = None
 ```
 
 ---
 
-## Quick Smoke Tests
+## Smoke Tests
 
-Each smoke test runs in under two minutes on CPU. Run them in order after installation.
+Each smoke test runs in under two minutes on CPU. Run in order after installation.
 
 ```bash
-# Phase 1 — deterministic seeding and environment creation
-python scripts/smoke_determinism.py
-
-# Phase 2 — dataset recording and loading
-python scripts/smoke_dataset.py
-
-# Phase 3 — Gaussian MLP BC training and evaluation
-python scripts/smoke_bc.py
-
-# Phase 4 — diffusion schedule, denoiser, and DDIM sampler
-python scripts/smoke_diffusion_sampler.py
-
-# Phase 5 — open-loop and receding-horizon execution wrappers
-python scripts/smoke_execution_modes.py
-
-# Phase 6 — diffusion training and evaluation
-python scripts/smoke_diffusion_train_eval.py
-
-# Phase 7 — multi-seed pipeline, validation, and aggregation
-python scripts/smoke_multiseed.py
+python scripts/smoke_determinism.py          #  seeding + env
+python scripts/smoke_dataset.py              #  dataset recording
+python scripts/smoke_bc.py                   #  BC training + eval
+python scripts/smoke_diffusion_sampler.py    #  DDIM sampler
+python scripts/smoke_execution_modes.py      #  execution wrappers
+python scripts/smoke_diffusion_train_eval.py #  diffusion train + eval
+python scripts/smoke_multiseed.py            #  multi-seed pipeline
 ```
 
-All smoke tests exit with code 0 on success and print a PASSED line to stdout.
+All smoke tests exit with code 0 on success.
 
 ---
 
-## Reproducing Main Results
+## Reproducibility
 
-The full multi-seed experiment follows five steps. All commands assume the virtual
-environment is active and the working directory is the repository root.
-
-**Step 1. Generate the dataset.**
+### Regenerating main results (3 seeds)
 
 ```bash
-python scripts/record_dataset.py \
-    --env_id gym_pusht/PushT-v0 \
-    --seed 0 --episodes 200 --max_steps 300 \
-    --out data/pusht_main.npz
-```
-
-**Step 2. Train the Gaussian BC baseline (per seed).**
-
-```bash
+# Full multi-seed pipeline: record → train BC → eval BC → train diffusion → eval diffusion
 python scripts/reproduce_multiseed.py \
     --seeds 0 1 2 \
-    --episodes_record 200 --max_steps_record 300 \
-    --steps_bc 5000 --steps_diff 5000 \
-    --episodes_eval 50 --max_steps_eval 300 \
-    --results_root results/main \
+    --env_id gym_pusht/PushT-v0 \
+    --episodes_record 20 --max_steps_record 200 \
+    --steps_bc 3000 --steps_diff 5000 \
+    --episodes_eval 20 --max_steps_eval 200 \
+    --results_root results/rq_exec_mode \
     --device cpu
-```
 
-`reproduce_multiseed.py` orchestrates the full pipeline for each seed: dataset
-recording, BC training, BC evaluation, diffusion training, and diffusion evaluation
-for both execution modes. Completed stages are skipped on re-run.
-
-**Step 3. Validate outputs.**
-
-```bash
+# Validate all per-seed output files exist and are complete
 python scripts/validate_results.py \
     --seeds 0 1 2 \
-    --results_root results/main
-```
+    --results_root results/rq_exec_mode
 
-**Step 4. Aggregate across seeds.**
-
-```bash
+# Aggregate across seeds
 python scripts/aggregate_results.py \
     --seeds 0 1 2 \
-    --results_root results/main
+    --results_root results/rq_exec_mode
+
+# Generate figures
+python scripts/plot_summary.py \
+    --summary_csv results/rq_exec_mode/summary.csv \
+    --out_path    results/rq_exec_mode/summary_plot.png
+
+python scripts/plot_per_seed.py \
+    --per_seed_csv results/rq_exec_mode/per_seed.csv \
+    --out_path     results/rq_exec_mode/per_seed_plot.png
 ```
 
-This writes `results/main/per_seed.csv` and `results/main/summary.csv`.
+### Repository structure
 
----
+```
+src/diffusion_policy_manipulation/   core library
+    data/        dataset loading and normalization
+    envs/        Push-T environment wrapper
+    models/      BC policy, MLP denoiser, diffusion schedule, DDIM sampler
+    train/       BC and diffusion training loops
+    eval/        rollout evaluator, execution-strategy wrappers
 
-## Results
-
-After aggregation, `results/main/summary.csv` contains one row per method-metric pair:
-
-| method            | metric           | mean   | std    | n_seeds |
-|-------------------|------------------|--------|--------|---------|
-| bc                | success_rate     | —      | —      | 3       |
-| diff_open_loop    | success_rate     | —      | —      | 3       |
-| diff_receding     | success_rate     | —      | —      | 3       |
-| ...               | ...              | —      | —      | ...     |
-
-Numeric results are populated after running `reproduce_multiseed.py` and
-`aggregate_results.py`. See `report/experiment_log.md` for entries recorded after
-each meaningful run.
+scripts/         training, evaluation, reproduction, smoke, plotting
+configs/         per-experiment configuration files
+data/            datasets (gitignored)
+runs/            checkpoints and training logs (gitignored)
+results/         per-seed JSON outputs and aggregated CSVs (gitignored)
+report/
+    figures/         PNG plots for README and documentation
+    experiment_log.md
+docs/
+    protocol.md          exact dataset, training, and evaluation protocol
+    research_question.md academic framing and empirical outcome
+    threat_model.md      scope limitations and non-goals
+tests/
+```
 
 ---
 
 ## Limitations
 
-This repository is deliberately scoped. Known limitations:
-
-- **Single environment.** All experiments use Push-T with low-dimensional state. Results
+- **Single environment.** All experiments use Push-T with 5-dimensional state. Results
   may not transfer to other tasks, observation modalities, or action spaces.
-- **Small dataset regime.** Demonstrations are collected with random actions. Coverage
-  of the state space is limited.
-- **Fixed horizon.** Sequence length H is held constant. The interaction between horizon
-  length and execution strategy is not studied.
-- **Fixed sampler.** DDIM with a fixed step count K is used throughout. Sampler choice
-  and step count are not varied.
-- **No vision.** Observations are low-dimensional state vectors. Image-conditioned
-  diffusion is not implemented.
-- **No transformer backbone.** The denoiser is an MLP. Attention-based architectures
-  are not evaluated.
-- **Simulation only.** No sim-to-real transfer is attempted. Latency and safety
-  constraints of physical hardware are not modeled.
+- **Random-action demonstrations.** The dataset is collected with a uniform random
+  policy. State-space coverage is broad but sparse; the dataset does not reflect expert
+  behavior.
+- **Fixed horizon.** Sequence length H = 8 is held constant. The effect of horizon on
+  the execution-strategy comparison is not studied.
+- **Fixed sampler.** DDIM with K = 10 steps and eta = 0.0 is used throughout.
+- **No vision.** Observations are low-dimensional state vectors only.
+- **No transformer backbone.** The denoiser is an MLP.
+- **Simulation only.** No sim-to-real transfer is attempted.
+- **success\_rate = 0.0.** The Push-T termination signal does not trigger under the
+  evaluated policies; `return_mean` is the operative metric.
 
 ---
 
-## Future Work
+## Future Directions
 
-Extensions that are in scope for follow-on work, listed without priority:
-
-- Larger demonstration datasets with task-conditioned data collection.
-- Vision-conditioned denoiser with a frozen encoder.
-- Latency profiling on accelerated hardware to measure the real cost of re-planning.
-- Additional execution strategies (e.g., partial chunk execution).
-- Transfer to a second environment to test generalization of the execution-strategy
-  finding.
+- Larger demonstration datasets collected with a task-conditioned or goal-reaching policy.
+- Vision-conditioned denoiser with a frozen convolutional encoder.
+- Profiling inference latency on accelerated hardware to quantify the real cost of
+  receding-horizon re-planning at robot control frequencies.
+- Intermediate execution strategies (execute K < H actions before re-planning).
+- Transfer to a second environment to test the generality of the execution-strategy finding.
 
 ---
 
 ## Citation
 
-If this codebase is useful to your work, please cite it as:
-
-```
-@misc{diffusion-policy-manipulation-2026,
-  author = {Jain, Abhinav},
-  title  = {Diffusion Policy Manipulation: Execution Strategy Study},
-  year   = {2026},
-  url    = {https://github.com/imabhi80/diffusion-policy-manipulation}
+```bibtex
+@software{diffusion_policy_manipulation_2026,
+  author  = {Jain, Abhinav},
+  title   = {diffusion-policy-manipulation: Execution Strategy Study for
+             Diffusion-Based Action-Sequence Policies},
+  year    = {2026},
+  url     = {https://github.com/imabhi80/diffusion-policy-manipulation},
+  doi     = {10.5281/zenodo.PLACEHOLDER},
+  version = {1.0.0},
 }
 ```

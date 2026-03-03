@@ -32,9 +32,6 @@ involves K denoising steps, the computational difference is significant.
 
 Whether this compute tradeoff translates into a meaningful performance difference on
 a manipulation task — and in which direction — is not obvious from first principles.
-Open-loop execution may tolerate prediction errors if the predicted sequence is
-globally consistent. Receding-horizon re-planning may recover from early errors but
-may also introduce instability if successive samples are inconsistent.
 
 ---
 
@@ -48,29 +45,57 @@ same trained checkpoint.
 **Independent variable.** Execution strategy: open-loop chunk execution (H actions per
 sample) vs. receding-horizon re-planning (1 action per sample, H actions predicted).
 
-**Dependent variables.** Task success rate, mean episodic return, mean episode length,
-and (where measured) policy inference latency.
+**Dependent variables.** Mean episodic return and mean episode length.
 
 **Controlled variables.** Model architecture, diffusion schedule, sampler
 configuration, training data, training seed, evaluation episode count, maximum episode
 length, and observation normalization.
 
 **Question.** Under identical training conditions, does execution strategy produce a
-measurable and consistent difference in task success rate or episodic return across
-multiple seeds?
+measurable and consistent difference in task return across multiple seeds?
 
 ---
 
 ## Hypothesis
 
 No directional prediction is made. The null hypothesis is that execution strategy
-produces no statistically meaningful difference in success rate or return within this
-experimental setup. A non-null result in either direction would warrant further
-investigation with larger datasets, longer horizons, and additional tasks.
+produces no statistically meaningful difference in return within this experimental
+setup. A non-null result in either direction would warrant further investigation with
+larger datasets, longer horizons, and additional tasks.
 
 The BC baseline is included as a reference point, not as a comparison target. It uses
 single-step prediction by definition and does not participate in the execution-strategy
 comparison.
+
+---
+
+## Empirical Outcome
+
+Results from the three-seed experiment (`results/rq_exec_mode/`, commit 04defe5)
+are summarized here at a high level.
+
+**Diffusion vs BC.** Diffusion sequence modeling outperformed the Gaussian BC baseline
+in `return_mean` consistently across all three seeds (cross-seed mean: diffusion ≈ 7.70
+vs BC ≈ 3.98). This pattern was consistent in direction across seeds and grew in
+magnitude with seed index. This result is reported as an empirical observation, not as
+a claim about the general superiority of diffusion policies over BC; the dataset is
+small and collected with a random policy.
+
+**Open-loop vs receding-horizon.** In this PushT configuration, execution strategy did
+not materially change return. The cross-seed difference in `return_mean` between the
+two strategies was approximately +0.02 in favor of receding-horizon, which is well
+within cross-seed noise. No consistent difference in episode length was observed. The
+null hypothesis (no meaningful execution-strategy effect) is not rejected in this
+experimental setup.
+
+**success\_rate.** `success_rate = 0.0` for all methods and seeds. The Push-T
+termination signal does not trigger within 200 steps under the evaluated policies.
+`return_mean` is the primary interpretable metric for this run.
+
+These results are scoped to a single environment with low-dimensional state, a small
+random-action dataset, a fixed horizon of H = 8, and a fixed DDIM sampler with K = 10
+steps. Generalizing these observations to other environments, demonstration qualities,
+or horizon lengths requires additional experiments.
 
 ---
 
@@ -79,9 +104,9 @@ comparison.
 The following are identical across the two execution-strategy conditions:
 
 - Trained model checkpoint (weights, architecture, schedule parameters).
-- DDIM sampler configuration (eta = 0.0, K steps, linear schedule).
+- DDIM sampler configuration (eta = 0.0, K = 10 steps, linear schedule).
 - Evaluation environment and task.
-- Episode count and maximum episode length.
+- Episode count (20) and maximum episode length (200).
 - Observation normalization parameters.
 - Master evaluation seed and per-episode reset seeds.
 - Diffusion noise seed derivation logic (only the indexing variable differs: chunk

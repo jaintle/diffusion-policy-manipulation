@@ -16,6 +16,26 @@ primary engineering concerns.
 
 ---
 
+## Success Rate Metric
+
+**`success_rate` is not used as the primary metric in this study.** In the current
+evaluator (`src/diffusion_policy_manipulation/eval/rollout_evaluator.py`), success is
+derived from the `terminated` flag returned by the environment step function. If the
+`info` dict provides an explicit `"success"` or `"is_success"` key, that takes
+precedence; otherwise, `terminated` is used as a binary proxy.
+
+In the `rq_exec_mode` experiment, `terminated` was never set within 200 steps for any
+method or seed. The Push-T environment in gym-pusht 0.1.6 does not raise a `terminated`
+signal when the block is placed correctly within the allotted steps under the evaluated
+policies. As a result, `success_rate = 0.0` for all methods and all seeds. This is a
+property of the interaction between the current evaluator logic and this specific
+environment version, not evidence that the policies are uniformly unsuccessful.
+
+`return_mean` is the primary interpretable metric for all comparisons in this study.
+`success_rate` is reported for completeness but should not be used to rank methods.
+
+---
+
 ## What This Repository Is Not
 
 ### 1. A sim-to-real transfer study
@@ -27,11 +47,11 @@ may not hold on a physical robot where re-planning latency is non-trivial.
 
 ### 2. A latency benchmarking study
 
-Policy inference time is measured incidentally (if `mean_policy_time` appears in eval
-output) but is not the focus of any experiment. Measurements are taken on CPU with no
-optimization. GPU inference, batched inference, and real-time constraints are not
-evaluated. Claims about the practical feasibility of receding-horizon re-planning at
-robot control frequencies cannot be made from this data.
+Policy inference time is recorded as `mean_policy_time` if populated, but is not the
+focus of any experiment. Measurements are taken on CPU with no optimization. GPU
+inference, batched inference, and real-time constraints are not evaluated. Claims about
+the practical feasibility of receding-horizon re-planning at robot control frequencies
+cannot be made from this data.
 
 ### 3. A multi-task generalization study
 
@@ -49,9 +69,8 @@ shift is not addressed.
 ### 5. A safety study
 
 No safety constraints, collision avoidance, or constraint satisfaction is modeled.
-The environment does not have movable obstacles, joint limits, or contact-rich
-dynamics that would require safety-aware planning. Results should not be interpreted
-as evidence for or against the safety of either execution strategy on a real system.
+Results should not be interpreted as evidence for or against the safety of either
+execution strategy on a real system.
 
 ### 6. A demonstration-quality study
 
@@ -68,28 +87,33 @@ results reflect a single configuration chosen for computational tractability on 
 
 ### 8. A benchmark comparison
 
-No comparison is made against published methods. Success rates and returns are reported
-in absolute terms within this experimental setup only. Numbers reported here are not
-comparable to numbers in other papers that use different environments, datasets, or
-evaluation protocols — including the original Diffusion Policy paper.
+No comparison is made against published methods. Returns are reported in absolute terms
+within this experimental setup only. Numbers reported here are not directly comparable
+to numbers in other papers that use different environments, datasets, or evaluation
+protocols — including the original Diffusion Policy paper.
 
 ---
 
 ## Known Confounds
 
 **Random-action demonstrations.** The training distribution is narrow and non-expert.
-A policy that achieves high success on this dataset may behave differently when trained
-on expert demonstrations. The execution-strategy comparison is valid within this setup
-but may change direction or magnitude with higher-quality data.
+A policy that achieves positive return on this dataset may behave differently when
+trained on expert demonstrations. The execution-strategy comparison is valid within
+this setup but may change direction or magnitude with higher-quality data.
 
-**Single-seed dataset.** The dataset is recorded once per experiment run. Different
-dataset seeds produce different trajectory coverage. Cross-seed variation in dataset
-content is partially but not fully captured by multi-seed training.
+**Single-seed dataset per experiment run.** The dataset for each seed is recorded once
+from that seed's random policy. Different seeds produce different trajectory coverage.
+Cross-seed variation in dataset content contributes to cross-seed return variance and
+is not separately controlled.
 
 **Push-T task structure.** Push-T is a planar pushing task with a block and a target
-region. The task is relatively short-horizon and low-dimensional. Execution strategies
-that differ on this task may behave identically on tasks with longer horizons or higher
-state-space dimensionality.
+region. It is relatively short-horizon and low-dimensional. Execution strategies that
+produce equivalent results on this task may behave differently on tasks with longer
+horizons, higher state-space dimensionality, or more contact-rich dynamics.
+
+**episode\_len\_mean = 200.0 for all methods.** All episodes run to the maximum step
+cap. This means episode length is not an informative signal in the current setup; it
+simply reflects that no method terminates an episode before the cap.
 
 ---
 
