@@ -1,6 +1,6 @@
 # diffusion-policy-manipulation: Execution Strategy Study for Diffusion-Based Action-Sequence Policies
 
-[![CI](https://github.com/imabhi80/diffusion-policy-manipulation/actions/workflows/ci.yml/badge.svg)](https://github.com/imabhi80/diffusion-policy-manipulation/actions/workflows/ci.yml)
+[![CI](https://github.com/jaintle/diffusion-policy-manipulation/actions/workflows/ci.yml/badge.svg)](https://github.com/imabhi80/diffusion-policy-manipulation/actions/workflows/ci.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.PLACEHOLDER.svg)](https://doi.org/10.5281/zenodo.PLACEHOLDER)
 
 ---
